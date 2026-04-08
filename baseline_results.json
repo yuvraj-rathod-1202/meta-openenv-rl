@@ -1,0 +1,24 @@
+{
+  "model": "gemini-3.1-flash-lite-preview",
+  "results": [
+    {
+      "task_id": 1,
+      "final_reward": 1.0,
+      "steps_taken": 2,
+      "solved": true
+    },
+    {
+      "task_id": 2,
+      "final_reward": 1.0,
+      "steps_taken": 4,
+      "solved": true
+    },
+    {
+      "task_id": 3,
+      "final_reward": 1.0,
+      "steps_taken": 7,
+      "solved": true
+    }
+  ],
+  "average_reward": 1.0
+}

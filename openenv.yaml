@@ -1,0 +1,48 @@
+name: sre-incident-response
+version: "1.0.0"
+description: >
+  An OpenEnv environment simulating an SRE engineer triaging production incidents
+  on a mock Linux server. The agent must diagnose and resolve three real-world
+  failure scenarios: a crashed web server, an OOM-killed database, and a
+  disk-exhausted service with a corrupted config file.
+
+author: your-hf-username
+tags:
+  - openenv
+  - sre
+  - devops
+  - incident-response
+  - linux
+
+tasks:
+  - id: 1
+    name: crashed-web-server
+    difficulty: easy
+    description: "nginx has crashed. Restart it after checking its status."
+    max_steps: 30
+
+  - id: 2
+    name: oom-database
+    difficulty: medium
+    description: "OOM-killed postgresql. Kill the rogue memory hog first, then restart DB."
+    max_steps: 30
+
+  - id: 3
+    name: disk-exhaustion-corrupted-config
+    difficulty: hard
+    description: "Clear full disk, discover and fix truncated JSON config, restart app."
+    max_steps: 30
+
+observation_space:
+  stdout: string
+  stderr: string
+  pwd: string
+  active_alerts: list[string]
+  step_count: integer
+
+action_space:
+  command: string (max 512 chars)
+
+reward_range: [0.0, 1.0]
+
+entry_point: "uvicorn app.main:app --host 0.0.0.0 --port 7860"
