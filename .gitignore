@@ -44,3 +44,6 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Generated baseline results
+baseline_results.json

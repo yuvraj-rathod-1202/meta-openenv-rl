@@ -1,3 +1,20 @@
+"""
+SREEnvironment - Core RL environment for SRE incident response.
+
+This module simulates a production Linux server where agents must diagnose
+and resolve incidents by issuing shell commands. The environment manages:
+- Mock filesystem, processes, services, and memory
+- Command execution and output simulation
+- Task-specific grading and reward calculation
+- Episode state management
+
+Example:
+    >>> env = SREEnvironment()
+    >>> obs = env.reset(task_id=1)  # Start easy task (nginx)
+    >>> obs, reward = env.step(Action(command="systemctl status nginx"))
+    >>> print(reward.value)  # 0.5 (partial credit for checking status)
+"""
+
 import json
 import re
 from copy import deepcopy
@@ -12,6 +29,21 @@ MAX_STEPS = 30
 
 
 class SREEnvironment:
+    """
+    RL environment simulating SRE incident response on a mock Linux server.
+
+    Tasks:
+    - Task 1 (Easy): Restart crashed nginx web server
+    - Task 2 (Medium): Kill rogue process, restart PostgreSQL
+    - Task 3 (Hard): Clear full disk, fix corrupted JSON config, restart app
+
+    Attributes:
+        _state (dict): Internal mock system state (filesystem, processes, services)
+        _task_id (int): Current task (1, 2, or 3)
+        _step_count (int): Steps taken in current episode
+        _done (bool): Whether episode has ended
+        _current_reward (float): Reward from last step
+    """
 
     def __init__(self):
         self._state: dict = {}

@@ -6,7 +6,7 @@ description: >
   failure scenarios: a crashed web server, an OOM-killed database, and a
   disk-exhausted service with a corrupted config file.
 
-author: your-hf-username
+author: sunaymd
 tags:
   - openenv
   - sre

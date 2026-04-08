@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-baseline.py - Run Google Gemini against all 3 SRE OpenEnv tasks.
+baseline.py - Run HF models against all 3 SRE OpenEnv tasks.
 
 Usage:
-    export GEMINI_API_KEY="your-key-here"
+    export HF_TOKEN="hf_your_token_here"
     python baseline.py
 
     # Against a remote HF Space:
@@ -12,14 +12,18 @@ Usage:
 import argparse
 import json
 import os
+import sys
+import time
 from pathlib import Path
 
 import httpx
 
 DEFAULT_BASE_URL = "http://localhost:7860"
-MODEL_NAME = "gemini-3.1-flash-lite-preview"
+MODEL_NAME = "google/flan-t5-base"
 MAX_STEPS = 30
 TASKS = [1, 2, 3]
+API_RETRIES = 3
+API_TIMEOUT = 30
 
 SYSTEM_PROMPT = """You are an expert Site Reliability Engineer (SRE) responding to a
 production incident. You interact with a mock Linux server by issuing ONE shell command
@@ -69,24 +73,26 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-api_key = os.environ.get("GEMINI_API_KEY")
-USE_GEMINI = False
-model = None
+hf_token = os.environ.get("HF_TOKEN")
+USE_HF = False
+client = None
 
 try:
-    import google.generativeai as genai
+    from huggingface_hub import InferenceClient
 
-    if api_key:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(MODEL_NAME)
-        USE_GEMINI = True
+    if hf_token:
+        client = InferenceClient(model=MODEL_NAME, token=hf_token)
+        USE_HF = True
+        print(f"✓ Connected to Hugging Face Inference API")
+        print(f"  Model: {MODEL_NAME}")
     else:
-        print("WARNING: GEMINI_API_KEY is not set; using deterministic fallback baseline.")
+        print("HF_TOKEN not set; using deterministic fallback baseline.")
 except Exception as exc:
-    print(f"WARNING: Gemini SDK unavailable ({exc}); using deterministic fallback baseline.")
+    print(f"Could not initialize HF ({exc}); using deterministic fallback baseline.")
 
 
 def _fallback_command(task_id: int, step_num: int, obs: dict) -> str:
+    """Return hardcoded command for fallback strategy."""
     if task_id == 1:
         if step_num == 1:
             return "systemctl status nginx"
@@ -109,11 +115,91 @@ def _fallback_command(task_id: int, step_num: int, obs: dict) -> str:
     return "ls /"
 
 
-def run_episode(base_url: str, task_id: int) -> dict:
-    client = httpx.Client(base_url=base_url, timeout=30)
-    obs_data = client.post("/reset", params={"task_id": task_id}).json()
-    obs = obs_data
+def _post_with_retry(
+    client_http: httpx.Client, endpoint: str, json_data: dict, retries: int = API_RETRIES
+) -> dict | None:
+    """
+    POST request with exponential backoff retry logic.
 
+    Args:
+        client_http: httpx Client instance
+        endpoint: Endpoint path (e.g., "/step")
+        json_data: Request body
+        retries: Number of retry attempts
+
+    Returns:
+        Response JSON dict, or None if all retries failed
+    """
+    for attempt in range(retries):
+        try:
+            response = client_http.post(endpoint, json=json_data)
+            response.raise_for_status()
+            return response.json()
+        except httpx.TimeoutException:
+            if attempt == retries - 1:
+                print(f"ERROR: Request timeout after {retries} attempts")
+                return None
+            wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+            print(f"Timeout on attempt {attempt + 1}/{retries}, retrying in {wait_time}s...")
+            time.sleep(wait_time)
+        except httpx.ConnectError as e:
+            if attempt == retries - 1:
+                print(f"ERROR: Could not connect to server (after {retries} attempts)")
+                print(f"Make sure the server is running: uvicorn app.main:app --port 7860")
+                return None
+            wait_time = 2 ** attempt
+            print(f"Connection failed on attempt {attempt + 1}/{retries}, retrying in {wait_time}s...")
+            time.sleep(wait_time)
+        except httpx.HTTPStatusError as e:
+            print(f"ERROR: HTTP {e.response.status_code}: {e.response.text}")
+            return None
+        except json.JSONDecodeError:
+            print(f"ERROR: Invalid JSON response from server")
+            return None
+        except Exception as e:
+            if attempt == retries - 1:
+                print(f"ERROR: Unexpected error: {e}")
+                return None
+            print(f"Error on attempt {attempt + 1}/{retries}: {e}, retrying...")
+            time.sleep(1)
+
+    return None
+
+
+def run_episode(base_url: str, task_id: int) -> dict:
+    """
+    Run a single episode for the given task.
+
+    Args:
+        base_url: Base URL of environment server
+        task_id: Task to run (1, 2, or 3)
+
+    Returns:
+        Dict with keys: task_id, final_reward, steps_taken, solved
+    """
+    try:
+        client_http = httpx.Client(base_url=base_url, timeout=API_TIMEOUT)
+    except Exception as e:
+        print(f"ERROR: Failed to create HTTP client: {e}")
+        return {
+            "task_id": task_id,
+            "final_reward": 0.0,
+            "steps_taken": 0,
+            "solved": False,
+        }
+
+    # Reset episode with query parameter, not json body
+    obs_data = _post_with_retry(client_http, f"/reset?task_id={task_id}", {})
+    if obs_data is None:
+        print(f"ERROR: Failed to reset environment for task {task_id}")
+        return {
+            "task_id": task_id,
+            "final_reward": 0.0,
+            "steps_taken": 0,
+            "solved": False,
+        }
+
+    obs = obs_data
     total_reward = 0.0
     done = False
     steps = 0
@@ -131,30 +217,61 @@ def run_episode(base_url: str, task_id: int) -> dict:
             f"\nWhat is your next command?"
         )
 
-        if USE_GEMINI and model is not None:
-            if step_num == 1:
-                chat = model.start_chat(history=[])
-            full_prompt = SYSTEM_PROMPT + "\n\n" + prompt if step_num == 1 else prompt
-            response = chat.send_message(full_prompt)
-            command = response.text.strip().split("\n")[0].strip()
-            command = command.strip("`").strip()
-        else:
+        command = None
+
+        if USE_HF and client is not None:
+            try:
+                # Build full prompt with system prompt on first step
+                if step_num == 1:
+                    full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
+                else:
+                    full_prompt = prompt
+
+                # Call HF Inference API with error handling
+                response = client.text_generation(
+                    prompt=full_prompt,
+                    max_new_tokens=256,
+                    temperature=0.7,
+                    do_sample=True,
+                    top_p=0.9,
+                )
+
+                command = response.strip().split("\n")[0].strip()
+                command = command.strip("`").strip()
+
+                # Validate command
+                if not command or len(command) > 512:
+                    raise ValueError(f"Invalid command: {command}")
+
+            except Exception as e:
+                # Silently fall back to deterministic strategy
+                command = None
+
+        # Fallback if no command from LLM
+        if command is None:
             command = _fallback_command(task_id, step_num, obs)
 
         print(f"  Step {step_num:02d} -> command: {command!r}")
 
-        step_resp = client.post("/step", json={"command": command}).json()
-        obs = step_resp["observation"]
-        reward = step_resp["reward"]
+        # Execute step with retry logic
+        step_resp = _post_with_retry(client_http, "/step", {"command": command})
+        if step_resp is None:
+            print(f"ERROR: Failed to execute step {step_num}, aborting task")
+            break
+
+        obs = step_resp.get("observation", obs)
+        reward = step_resp.get("reward", {})
         steps = step_num
 
-        total_reward = reward["value"]
-        done = reward["done"]
+        total_reward = reward.get("value", 0.0)
+        done = reward.get("done", False)
 
         print(f"           reward: {total_reward:.2f}  done: {done}")
 
         if done:
             break
+
+    client_http.close()
 
     result = {
         "task_id": task_id,
@@ -167,27 +284,64 @@ def run_episode(base_url: str, task_id: int) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SRE OpenEnv Gemini Baseline")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser = argparse.ArgumentParser(description="SRE OpenEnv Baseline with HF Models")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base URL of environment server")
     args = parser.parse_args()
+
+    # Verify server is reachable
+    try:
+        test_client = httpx.Client(base_url=args.base_url, timeout=5)
+        test_client.get("/")
+        test_client.close()
+    except Exception as e:
+        print(f"ERROR: Cannot reach server at {args.base_url}")
+        print(f"Details: {e}")
+        print(f"Make sure to start the server first:")
+        print(f"uvicorn app.main:app --port 7860")
+        sys.exit(1)
+
+    print(f"✓ Server reachable at {args.base_url}")
 
     results = []
     for task_id in TASKS:
-        results.append(run_episode(args.base_url, task_id))
+        try:
+            results.append(run_episode(args.base_url, task_id))
+        except KeyboardInterrupt:
+            print("\n\nInterrupted by user")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\nERROR in task {task_id}: {e}")
+            results.append({
+                "task_id": task_id,
+                "final_reward": 0.0,
+                "steps_taken": 0,
+                "solved": False,
+            })
 
     print("\n" + "=" * 60)
     print("  BASELINE SUMMARY")
     print("=" * 60)
-    avg = sum(r["final_reward"] for r in results) / len(results)
+
+    if not results or all(r["final_reward"] == 0.0 for r in results):
+        print("All tasks failed. Check that:")
+        print("1. Server is running: uvicorn app.main:app --port 7860")
+        print("2. HF_TOKEN is set (export HF_TOKEN='your_token')")
+        print("3. Network connection is stable")
+        avg = 0.0
+    else:
+        avg = sum(r["final_reward"] for r in results) / len(results)
+
     for r in results:
         difficulty = {1: "easy", 2: "medium", 3: "hard"}[r["task_id"]]
-        print(f"  Task {r['task_id']} ({difficulty:6s}): reward={r['final_reward']:.2f}  solved={r['solved']}")
+        status = "✅" if r["solved"] else "❌"
+        print(f"  Task {r['task_id']} ({difficulty:6s}): reward={r['final_reward']:.2f}  solved={r['solved']} {status}")
+
     print(f"\n  Average reward: {avg:.3f}")
     print("=" * 60)
 
     with open("baseline_results.json", "w") as f:
         json.dump({"model": MODEL_NAME, "results": results, "average_reward": avg}, f, indent=2)
-    print("\n  Results saved to baseline_results.json")
+    print("\n  ✓ Results saved to baseline_results.json")
 
 
 if __name__ == "__main__":
