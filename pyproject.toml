@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
+server = "server.app:main"
 sre-openenv-server = "server.app:main"
 
 [build-system]
