@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-sre-openenv-server = "server.app:app"
+sre-openenv-server = "server.app:main"
 
 [build-system]
 requires = ["hatchling"]
