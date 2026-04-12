@@ -92,28 +92,6 @@ except Exception as exc:
     print(f"Could not initialize HF ({exc}); using deterministic fallback baseline.")
 
 
-def _fallback_command(task_id: int, step_num: int, obs: dict) -> str:
-    """Return hardcoded command for fallback strategy."""
-    if task_id == 1:
-        if step_num == 1:
-            return "systemctl status nginx"
-        return "systemctl start nginx"
-
-    if task_id == 2:
-        if step_num == 1:
-            return "kill -9 8821"
-        return "systemctl start postgresql"
-
-    if task_id == 3:
-        if step_num == 1:
-            return "> /var/log/app-debug.log"
-        if step_num == 2:
-            return "cat /etc/app/config.json"
-        if step_num == 3:
-            return "echo '}' >> /etc/app/config.json"
-        return "systemctl start app"
-
-    return "ls /"
 
 
 def _post_with_retry(
@@ -224,22 +202,20 @@ def run_episode(base_url: str, task_id: int) -> dict:
 
         if USE_HF and client is not None:
             try:
-                # Build full prompt with system prompt on first step
-                if step_num == 1:
-                    full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
-                else:
-                    full_prompt = prompt
-
-                # Call HF Inference API with error handling
-                response = client.text_generation(
-                    prompt=full_prompt,
-                    max_new_tokens=256,
+                # Call HF Inference API using CHAT COMPLETION for instruct models like Llama
+                messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                response = client.chat_completion(
+                    messages=messages,
+                    max_tokens=256,
                     temperature=0.7,
-                    do_sample=True,
                     top_p=0.9,
                 )
 
-                command = response.strip().split("\n")[0].strip()
+                command = response.choices[0].message.content.strip().split("\n")[0].strip()
                 command = command.strip("`").strip()
 
                 # Validate command
@@ -247,12 +223,12 @@ def run_episode(base_url: str, task_id: int) -> dict:
                     raise ValueError(f"Invalid command: {command}")
 
             except Exception as e:
-                # Silently fall back to deterministic strategy
+                print(f"  [DEBUG] LLM Pipeline crashed: {e}")
                 command = None
 
         # Fallback if no command from LLM
         if command is None:
-            command = _fallback_command(task_id, step_num, obs)
+            command = "echo 'LLM failed to generate a command'"
 
         print(f"  Step {step_num:02d} -> command: {command!r}")
 
