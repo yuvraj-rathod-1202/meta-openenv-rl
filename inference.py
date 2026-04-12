@@ -74,22 +74,26 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-hf_token = os.environ.get("HF_TOKEN")
-USE_HF = False
+api_key = os.environ.get("API_KEY")
+api_base_url = os.environ.get("API_BASE_URL")
+USE_LLM = False
 client = None
 
 try:
-    from huggingface_hub import InferenceClient
-
-    if hf_token:
-        client = InferenceClient(model=MODEL_NAME, token=hf_token)
-        USE_HF = True
-        print(f"✓ Connected to Hugging Face Inference API")
+    from openai import OpenAI
+    
+    if api_key and api_base_url:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=api_base_url
+        )
+        USE_LLM = True
+        print(f"✓ Connected to LiteLLM Proxy API via OpenAI Client")
         print(f"  Model: {MODEL_NAME}")
     else:
-        print("HF_TOKEN not set; using deterministic fallback baseline.")
+        print("API_KEY or API_BASE_URL not set; using deterministic fallback baseline.")
 except Exception as exc:
-    print(f"Could not initialize HF ({exc}); using deterministic fallback baseline.")
+    print(f"Could not initialize OpenAI Client ({exc}); using deterministic fallback baseline.")
 
 
 
@@ -200,15 +204,16 @@ def run_episode(base_url: str, task_id: int) -> dict:
 
         command = None
 
-        if USE_HF and client is not None:
+        if USE_LLM and client is not None:
             try:
-                # Call HF Inference API using CHAT COMPLETION for instruct models like Llama
+                # Call LLM Proxy API using CHAT COMPLETION
                 messages = [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ]
                 
-                response = client.chat_completion(
+                response = client.chat.completions.create(
+                    model=MODEL_NAME,
                     messages=messages,
                     max_tokens=256,
                     temperature=0.7,
