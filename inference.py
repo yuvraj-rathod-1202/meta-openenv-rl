@@ -22,6 +22,7 @@ DEFAULT_BASE_URL = "http://localhost:7860"
 MODEL_NAME = "google/flan-t5-base"
 MAX_STEPS = 30
 TASKS = [1, 2, 3]
+TASK_NAMES = {1: "crashed-web-server", 2: "oom-database", 3: "disk-exhaustion-corrupted-config"}
 API_RETRIES = 3
 API_TIMEOUT = 30
 
@@ -204,6 +205,8 @@ def run_episode(base_url: str, task_id: int) -> dict:
     done = False
     steps = 0
 
+    task_name = TASK_NAMES[task_id]
+    print(f"[START] task={task_name}", flush=True)
     print(f"\n{'=' * 60}")
     print(f"  TASK {task_id}  |  Alerts: {obs.get('active_alerts', [])}")
     print(f"{'=' * 60}")
@@ -267,6 +270,7 @@ def run_episode(base_url: str, task_id: int) -> dict:
         done = reward.get("done", False)
 
         print(f"           reward: {total_reward:.2f}  done: {done}")
+        print(f"[STEP] step={step_num} reward={total_reward:.2f}", flush=True)
 
         if done:
             break
@@ -280,6 +284,7 @@ def run_episode(base_url: str, task_id: int) -> dict:
         "solved": done and total_reward >= 1.0,
     }
     print(f"\n  RESULT task={task_id}: reward={total_reward:.2f}, steps={steps}, solved={result['solved']}")
+    print(f"[END] task={task_name} score={total_reward:.2f} steps={steps}", flush=True)
     return result
 
 
