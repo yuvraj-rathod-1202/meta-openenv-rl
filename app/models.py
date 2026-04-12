@@ -35,7 +35,7 @@ class Observation(BaseModel):
 class Reward(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    value: float = Field(description="Scalar reward in [0.0, 1.0].", ge=0.0, le=1.0)
+    value: float = Field(description="Scalar reward in (0.0, 1.0).", gt=0.0, lt=1.0)
     breakdown: dict = Field(description="Named sub-rewards explaining how value was computed.")
     done: bool = Field(description="True when the episode is complete.")
     info: dict = Field(description="Diagnostic info for debugging (not for the agent).")

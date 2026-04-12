@@ -361,10 +361,10 @@ class SREEnvironment:
         services = self._state.get("mock_services", {})
         nginx_running = services.get("nginx") == "active (running)"
         breakdown = {
-            "checked_status": 0.5 if self._checked_nginx_status else 0.0,
-            "nginx_running": 1.0 if nginx_running else 0.0,
+            "checked_status": 0.5 if self._checked_nginx_status else 0.01,
+            "nginx_running": 0.99 if nginx_running else 0.01,
         }
-        value = 1.0 if nginx_running else (0.5 if self._checked_nginx_status else 0.0)
+        value = 0.99 if nginx_running else (0.5 if self._checked_nginx_status else 0.01)
         done = nginx_running
         self._done = done
         self._current_reward = value
@@ -380,7 +380,7 @@ class SREEnvironment:
         penalized = self._pg_restart_before_kill
 
         if pg_running and rogue_dead:
-            value = 1.0
+            value = 0.99
             done = True
         elif rogue_dead and self._attempted_pg_restart:
             value = 0.5
@@ -392,7 +392,7 @@ class SREEnvironment:
             value = 0.2
             done = False
         else:
-            value = 0.0
+            value = 0.01
             done = False
 
         self._done = done
@@ -415,7 +415,7 @@ class SREEnvironment:
         app_running = services.get("app") == "active (running)"
 
         if app_running and config_ok and disk_clear:
-            value = 1.0
+            value = 0.99
             done = True
         elif config_ok and disk_clear:
             value = 0.6
@@ -427,7 +427,7 @@ class SREEnvironment:
             value = 0.3
             done = False
         else:
-            value = 0.0
+            value = 0.01
             done = False
 
         self._done = done

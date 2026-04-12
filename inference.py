@@ -257,7 +257,7 @@ def run_episode(base_url: str, task_id: int) -> dict:
         "task_id": task_id,
         "final_reward": total_reward,
         "steps_taken": steps,
-        "solved": done and total_reward >= 1.0,
+        "solved": done and total_reward >= 0.99,
     }
     print(f"\n  RESULT task={task_id}: reward={total_reward:.2f}, steps={steps}, solved={result['solved']}")
     print(f"[END] task={task_name} score={total_reward:.2f} steps={steps}", flush=True)
