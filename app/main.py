@@ -80,7 +80,7 @@ def step(action: Action):
     Returns:
         {
             "observation": Current state observation,
-            "reward": Reward signal with value (0-1) and done flag
+            "reward": Reward signal with value strictly between 0 and 1, and done flag
         }
     """
     obs, reward = env.step(action)

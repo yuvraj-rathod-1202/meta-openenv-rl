@@ -43,6 +43,6 @@ observation_space:
 action_space:
   command: string (max 512 chars)
 
-reward_range: [0.0, 1.0]
+reward_range: [0.01, 0.99]
 
 entry_point: "uvicorn app.main:app --host 0.0.0.0 --port 7860"

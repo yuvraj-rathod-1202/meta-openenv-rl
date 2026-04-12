@@ -56,7 +56,7 @@ Single shell command (string, max 512 chars)
 **Supported commands**: `ls, cat, df, du, ps, top, free, kill, systemctl, >, rm, echo, sed`
 
 ### Reward
-- Range: [0.0, 1.0]
+- Range: (0.0, 1.0), implemented as [0.01, 0.99]
 - Task-specific grading (see below)
 - Breakdown: Detailed sub-rewards for debugging
 
